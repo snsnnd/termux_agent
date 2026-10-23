@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import json
 from pathlib import Path
@@ -107,14 +108,31 @@ class ToolRouter:
     def shell(self, command):
         # MVP：仅在 workspace 中执行。
         # 后续接 QQ 前还要增加 owner 权限和危险命令策略。
-        result = subprocess.run(
-            command,
-            shell=True,
-            cwd=self.workspace,
-            capture_output=True,
-            text=True,
-            timeout=60
+        #
+        # Termux: /bin/sh does not exist inside the app sandbox, and
+        # shell=True would fail -> use $SHELL (Termux sets it) with
+        # graceful fallbacks for plain Linux.
+        exe = (
+            os.environ.get("SHELL")
+            or shutil.which("bash")
+            or shutil.which("sh")
+            or "/system/bin/sh"
         )
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                executable=exe,
+                cwd=self.workspace,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                errors="replace",
+            )
+        except subprocess.TimeoutExpired:
+            return "Tool error: command timed out after 60s"
+        except FileNotFoundError:
+            return f"Tool error: shell not found ({exe})"
 
         output = ""
 

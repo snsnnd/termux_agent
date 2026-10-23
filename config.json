@@ -3,5 +3,16 @@
   "model": "glm-5.3-flash",
   "api_key": "b97f1cdfc4fe4caf9c81d7b4f38d728f.OZQos0LN4HYhAlyp",
   "workspace": "./workspace",
-  "max_tool_rounds": 10
+  "max_tool_rounds": 10,
+
+  "connect_timeout": 15,
+  "read_timeout": 120,
+  "max_retries": 3,
+  "temperature": 0.6,
+
+  "context_budget": 6000,
+  "tool_result_limit": 6000,
+  "summary_trigger": 4,
+
+  "termux_wake_lock": true
 }
