@@ -14,6 +14,7 @@ Termux specifics handled here:
 """
 
 import asyncio
+import difflib
 import json
 import re
 import shutil
@@ -318,6 +319,18 @@ async def main(argv):
                     except OSError:
                         note = " (this run only)"
                     ui.info(f"model: {old} -> {name}{note}")
+                continue
+
+            # slash input matched no command above: almost always a typo
+            # (phone keyboards drop keys) -> correct it locally instead of
+            # paying for an LLM turn that just guesses "did you mean"
+            if text.startswith("/"):
+                known = ["/help", "/new", "/sessions", "/resume", "/clear",
+                         "/compact", "/usage", "/undo", "/export", "/model",
+                         "/exit", "/quit"]
+                close = difflib.get_close_matches(text, known, n=1, cutoff=0.5)
+                hint = f"did you mean {close[0]}?" if close else "try /help"
+                ui.error(f'unknown command "{text}" - {hint}')
                 continue
 
             # ---- normal turn --------------------------------------------
