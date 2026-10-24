@@ -14,7 +14,7 @@
   "tool_result_limit": 6000,
   "summary_trigger": 4,
 
-  "approval": "ask",
+  "approval": "auto",
   "stream_usage": true,
   "debug_log": "",
   "notify": false,
