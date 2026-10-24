@@ -16,6 +16,7 @@ Termux specifics handled here:
 import asyncio
 import difflib
 import json
+import queue
 import re
 import shutil
 import signal
@@ -33,6 +34,38 @@ from tools.router import ToolRouter
 from ui import UI, paint
 
 BASE = Path(__file__).resolve().parent
+
+# single source for command handling: dispatcher fallback + Tab completion
+_COMMANDS = ("/help", "/new", "/sessions", "/resume", "/clear", "/compact",
+             "/usage", "/undo", "/export", "/model", "/exit", "/quit")
+
+_readline = None
+
+
+def _completer(text, state):
+    """Tab-complete slash commands, bash-style (double-Tab lists them all)."""
+    line = _readline.get_line_buffer()
+    if " " in line or (line and not line.startswith("/")):
+        return None
+    hits = [c for c in _COMMANDS if c.startswith(text)]
+    return hits[state] if state < len(hits) else None
+
+
+def setup_line_editing():
+    """Make the prompt shell-like: Tab completes /commands, up/down arrows
+    recall history, Home/End edit the line. No-op without readline."""
+    global _readline
+    try:
+        import readline as rl
+    except ImportError:
+        return
+    _readline = rl
+    rl.set_completer(_completer)
+    # "/" must NOT break words, otherwise the completer sees "ses"
+    # instead of "/ses" and never matches anything
+    rl.set_completer_delims(" \t\n")
+    rl.parse_and_bind("tab: complete")
+    rl.set_history_length(500)
 
 
 def load_config(argv):
@@ -120,6 +153,7 @@ class InputSource:
 
     def __init__(self):
         self._queue = asyncio.Queue()
+        self._prompts = queue.Queue()   # prompt handoff to the reader thread
         self._loop = None
         self._eof = False
 
@@ -128,9 +162,15 @@ class InputSource:
         threading.Thread(target=self._reader, daemon=True).start()
 
     def _reader(self):
+        # input(prompt) (not sys.stdin.readline) so the readline module gives
+        # Tab completion + history with correct prompt-aware redrawing; the
+        # prompt arrives through _prompts because main() decides it per read
         while True:
+            prompt = self._prompts.get()
             try:
-                line = sys.stdin.readline()
+                line = input(prompt)
+            except EOFError:
+                line = ""
             except (OSError, ValueError):
                 line = ""
             if line == "":
@@ -152,9 +192,9 @@ class InputSource:
     async def read_line(self, prompt=""):
         if self._eof:
             return None
-        if prompt:
-            sys.stdout.write(prompt)
-            sys.stdout.flush()
+        # hand the prompt to the reader thread: input(prompt) makes readline
+        # aware of it, so completion redraws don't clobber the prompt
+        self._prompts.put(prompt)
         line = await self._queue.get()
         if line is None:
             self._eof = True
@@ -201,6 +241,7 @@ async def main(argv):
     notify_after = float(config.get("notify_after", 5))
 
     loop = asyncio.get_running_loop()
+    setup_line_editing()
     src.start(loop)
     current = {"task": None}
 
@@ -325,10 +366,8 @@ async def main(argv):
             # (phone keyboards drop keys) -> correct it locally instead of
             # paying for an LLM turn that just guesses "did you mean"
             if text.startswith("/"):
-                known = ["/help", "/new", "/sessions", "/resume", "/clear",
-                         "/compact", "/usage", "/undo", "/export", "/model",
-                         "/exit", "/quit"]
-                close = difflib.get_close_matches(text, known, n=1, cutoff=0.5)
+                close = difflib.get_close_matches(text, _COMMANDS, n=1,
+                                                  cutoff=0.5)
                 hint = f"did you mean {close[0]}?" if close else "try /help"
                 ui.error(f'unknown command "{text}" - {hint}')
                 continue
