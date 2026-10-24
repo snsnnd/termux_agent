@@ -143,5 +143,12 @@ class Memory:
         )
         self.db.commit()
 
+    def meta_like(self, prefix):
+        rows = self.db.execute(
+            "SELECT key, value FROM meta WHERE key LIKE ?",
+            (prefix + "%",),
+        ).fetchall()
+        return {r[0]: r[1] for r in rows}
+
     def close(self):
         self.db.close()

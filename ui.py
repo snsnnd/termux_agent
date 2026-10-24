@@ -97,7 +97,8 @@ class UI:
         line2 = paint(f"  model={model}  session={session} ({messages} msgs)", "dim")
         print(f"{line1}{line2}")
         print(paint(
-            "commands: /help  /new  /sessions  /resume  /compact  /clear  /exit",
+            "commands: /help  /new  /sessions  /resume  /compact  "
+            "/usage  /export  /undo  /model  /exit",
             "dim",
         ))
         print()
@@ -112,6 +113,10 @@ class UI:
             ("/resume <name>", "switch back to a session"),
             ("/compact", "summarize the whole history now"),
             ("/clear", "erase history of the current session"),
+            ("/usage", "token usage of this session / all sessions"),
+            ("/undo", "restore the most recent file snapshot"),
+            ("/export [file]", "export session as markdown"),
+            ("/model [name]", "show or switch the model"),
             ("/exit", "quit"),
         ]
         for cmd, desc in rows:
@@ -271,6 +276,35 @@ class UI:
         self.stop_status()
         print(paint(f"[error] {text}", "bold", "red"), flush=True)
 
+    def usage(self, event):
+        self._close_pending()
+        self.stop_status()
+        p = int(event.get("prompt", 0))
+        c = int(event.get("completion", 0))
+        cached = int(event.get("cached", 0))
+        calls = int(event.get("calls", 1))
+        text = f"  tokens: {p} prompt + {c} completion"
+        if cached:
+            text += f" ({cached} cached)"
+        if calls > 1:
+            text += f" in {calls} calls"
+        print(paint(text, "dim"), flush=True)
+
+    async def approve(self, desc, read_line):
+        """y/N confirmation for side-effecting tools.
+
+        read_line() is an awaitable returning the next terminal line
+        (or None on EOF/timeout).
+        """
+        self._close_pending()
+        self.stop_status()
+        print(paint(f"  allow? {desc}  [y/N]", "yellow", "bold"), flush=True)
+        line = await read_line()
+        if line is None:
+            print(paint("  (no answer -> denied)", "dim"), flush=True)
+            return False
+        return line.strip().lower() in {"y", "yes", "是", "好", "可以"}
+
     def emit(self, event):
         kind = event.get("type")
         if kind == "status":
@@ -290,3 +324,5 @@ class UI:
             self._close_pending()
         elif kind == "info":
             self.info(event.get("text", ""))
+        elif kind == "usage":
+            self.usage(event)

@@ -14,5 +14,16 @@
   "tool_result_limit": 6000,
   "summary_trigger": 4,
 
+  "approval": "ask",
+  "stream_usage": true,
+  "debug_log": "",
+  "notify": false,
+  "notify_after": 5,
+
+  "qq_url": "ws://127.0.0.1:3001",
+  "qq_token": "",
+  "qq_group_at_only": true,
+  "qq_reply_max": 1800,
+
   "termux_wake_lock": true
 }
