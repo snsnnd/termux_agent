@@ -1,0 +1,407 @@
+You > can you see the history of this sessions? tell me with Chinese
+[thinking]
+The user is asking whether I can see the history of this session. Based on the context, it seems earlier attempts were interrupted ("Reached maximum tool rounds"). I should tell the user (in Chinese) what I can see: their earlier request about the folder `~/storage/shared/tmp_my/Escape Room Treasure Hunt/`, copying it to home directory, analyzing the project.
+
+I don't have visibility into previous tool call results from earlier rounds — those were cut off. So I should honestly say: I can see the conversation messages (the user's request), but the earlier tool executions were interrupted and I don't have their results. I should offer to redo the task.
+
+Let me be honest and helpful. I can start fresh: check the folder, copy it to home, analyze the project. But the user just asked whether I can see the history. I should answer in Chinese, explain what I see, and offer to continue.
+
+Maybe I should proactively start doing the task again? The user asked a question; I should answer it and offer to continue. But being an autonomous agent, I could also just proceed. Let me answer the question first and then offer/ask to continue, or better: answer and start doing it since the intent was clear.
+
+Actually, let me answer the question and then begin the task again (check folder, copy, analyze). That would be most helpful. But I should be careful not to burn through tool rounds. Let me do a first step: list the folder and check it exists.
+
+
+Agent > 可以看到部分对话记录，但有个情况需要说明：
+
+**我能看到的：**
+- 你最初的需求：查看 `~/storage/shared/tmp_my/Escape Room Treasure Hunt/` 文件夹 → 复制到 home 目录 → 分析这个项目是干嘛的、检查代码问题、解析代码。
+
+**我看不到的：**
+- 之前两轮任务执行到一半被中断了（系统提示"达到最大工具调用轮次"），所以之前执行过的命令输出结果我拿不到了，也不知道复制是否已完成、代码分析到哪一步了。
+
+因此我需要重新执行一遍。现在我先检查源文件夹和 home 目录的复制状态：
+  [tool] shell (1/2) {"command":"ls -la ~/storage/shared/tmp_my/ 2>&1 | head -30; echo \"---分隔线---\"; ls -la ~/storage/shared/tmp_my/\"Escape Room Treasure Hunt\"/ 2>&1 | hea...
+  [tool] shell (2/2) {"command":"echo \"HOME=$HOME\"; ls -la \"$HOME\" 2>&1 | head -40"}
+  | total 15
+  | drwxrws---. 4 u0_a152 media_rw 3440 Oct 25 12:14 Escape Room Treasure Hunt
+  | drwxrws---. 3 u0_a152 media_rw 3440 Aug  5 19:26 JS_qianduan
+  | ---分隔线---
+  | total 15
+  | drwxrws---. 2 u0_a152 media_rw 3440 Oct 25 12:14 BT
+  | drwxrws---. 3 u0_a152 media_rw 3440 Oct 25 12:14 NEW_Borad
+  |
+  | exit_code=0
+  | (65 ms)
+  | HOME=/data/data/com.termux/files/home
+  | total 91
+  | drwx------. 10 u0_a242 u0_a242  3440 Oct 25 13:13 .
+  | drwxrwx--x.  4 u0_a242 u0_a242  3440 Oct 20 14:57 ..
+  | -rw-------.  1 u0_a242 u0_a242   495 Aug 13 01:25 .bash_history
+  | drwx------.  3 u0_a242 u0_a242  3440 Aug 13 01:09 .cache
+  | drwx------.  3 u0_a242 u0_a242  3440 Oct 23 23:29 .cargo
+  | -rw-------.  1 u0_a242 u0_a242    49 Oct 24 00:28 .gitconfig
+  | -rw-------.  1 u0_a242 u0_a242    26 Oct 24 23:53 .lesshst
+  | drwx------.  2 u0_a242 u0_a242  3440 Oct 24 00:36 .ssh
+  | drwx------.  3 u0_a242 u0_a242  3440 Oct 20 15:22 .termux
+  | drwx------.  4 u0_a242 u0_a242  3440 Oct 25 12:31 Escape Room Treasure Hunt
+  | drwx------.  5 u0_a242 u0_a242  3440 Oct 25 13:10 Escape_Room_Treasure_Hunt
+  | -rw-------.  1 u0_a242 u0_a242   197 Oct 24 23:50 config.backup.json
+  | ... (5 more lines)
+  | (49 ms)
+[thinking]
+Interesting findings:
+
+1. Source folder `~/storage/shared/tmp_my/Escape Room Treasure Hunt/` exists and contains:
+   - `BT/` (directory)
+   - `NEW_Borad/` (directory, likely "NEW_Board" typo)
+
+2. Home directory has TWO folders:
+   - `Escape Room Treasure Hunt` (Oct 25 12:31) — possibly a previous copy
+   - `Escape_Room_Treasure_Hunt` (Oct 25 13:10) — also exists, modified more recently
+
+Hmm, there are two copies already in home. One might be from a previous interrupted attempt. Let me check both to see what's in them, and also check the source's full structure recursively.
+
+Let me check:
+- Source recursive listing
+
+有新发现：源文件夹里有两个子目录（`BT` 和 `NEW_Borad`），而且 home 目录下已经有**两个**相关文件夹了（`Escape Room Treasure Hunt` 和 `Escape_Room_Treasure_Hunt`），可能是之前 中断任务的部分产物。我先看看它们的结构是否一致：
+  [tool] shell (1/2) {"command":"cd ~/storage/shared/tmp_my/\"Escape Room Treasure Hunt\" && find . -type f | head -60; echo \"=== 文件总数:\"; find . -type f | wc -l; echo \"===...
+  [tool] shell (2/2) {"command":"echo \"===== home/Escape Room Treasure Hunt =====\"; find \"$HOME/Escape Room Treasure Hunt\" -type f | head -40; find \"$HOME/Escape Room Tr...
+  | ./BT/c.py
+  | ./BT/b.py
+  | ./BT/a.py
+  | ./BT/map.c
+  | ./BT/d.py
+  | ./BT/final.py
+  | ./BT/protocol.py
+  | ./BT/map.h
+  | ./NEW_Borad/mycode/driver/community/serial/uart.h
+  | ./NEW_Borad/mycode/driver/community/serial/uart.c
+  | ./NEW_Borad/mycode/driver/community/iic/iic_mpu6050.c
+  | ./NEW_Borad/mycode/driver/community/iic/iic_mpu6050.h
+  | ./NEW_Borad/mycode/driver/mpu/逐飞/逐飞_mpu6050底层.c
+  | ./NEW_Borad/mycode/driver/mpu/逐飞/逐飞_mpu6050.c
+  | ... (52 more lines)
+  | (178 ms)
+  | ===== home/Escape Room Treasure Hunt =====
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/BT/c.py
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/BT/b.py
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/BT/a.py
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/BT/map.c
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/BT/d.py
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/BT/final.py
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/BT/protocol.py
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/BT/map.h
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/NEW_Borad/mycode/driver/community/serial/uart.h
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/NEW_Borad/mycode/driver/community/serial/uart.c
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/NEW_Borad/mycode/driver/community/iic/iic_mpu6050.c
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/NEW_Borad/mycode/driver/community/iic/iic_mpu6050.h
+  | /data/data/com.termux/files/home/Escape Room Treasure Hunt/NEW_Borad/mycode/driver/mpu/逐飞/逐飞_mpu6050底层.c
+  | ... (92 more lines)
+  | (69 ms)
+[thinking]
+Interesting. The source has 83 files. home/"Escape Room Treasure Hunt" has 83 files. home/Escape_Room_Treasure_Hunt has 205 files — more, maybe it includes extra stuff (maybe an old copy or has additional dirs). Let me verify the copy integrity with diff -r, and check what's in Escape_Room_Treasure_Hunt that's extra.
+
+
+复制结果有差异：源目录 83 个文件，`Escape Room Treasure Hunt` 也是 83 个，但 `Escape_Room_Treasure_Hunt` 有 205 个文件。我来校验一致性并弄清多出来的文件是什么：
+  [tool] shell (1/2) {"command":"diff -rq ~/storage/shared/tmp_my/\"Escape Room Treasure Hunt\" \"$HOME/Escape Room Treasure Hunt\" 2>&1 | head -20; echo \"=== diff退出码: $?\""}
+  [tool] shell (2/2) {"command":"diff -rq ~/storage/shared/tmp_my/\"Escape Room Treasure Hunt\" \"$HOME/Escape_Room_Treasure_Hunt\" 2>&1 | head -40"}
+  | === diff退出码: 0
+  |
+  | exit_code=0
+  | (98 ms)
+  | Only in /data/data/com.termux/files/home/Escape_Room_Treasure_Hunt: .git
+  |
+  | exit_code=0
+  | (75 ms)
+[thinking]
+- `$HOME/Escape Room Treasure Hunt` is identical to source (diff -rq exit 0, no output).
+- `$HOME/Escape_Room_Treasure_Hunt` is also identical except it has a `.git` directory — so a previous session apparently copied it AND initialized a git repo (or it's a clone). So the interrupted task did complete the copy.
+
+The .git dir suggests the earlier session made it a git repo — maybe it committed. Let me check git log there. Also check what .git contains (maybe just initialized). Not critical, but worth a quick look.
+
+Now proceed to analysis: read the key project files. Let me look at the structure more: NEW_Borad/mycode/top/*.c files, main, and BT python files. Let me get full file list grouped, then read the core files:
+- BT/*.py (a.py, b.py, c.py, d.py, final.py, protocol.py, map.c, map.h)
+- NEW_Borad/mycode/top/ (FSM.h, Lidra.h, and probably .c files listed beyond head -60)
+
+Let me list remaining files (the earlier find was truncated at 60 of 83). And check git log in Escape_Room_Treasure_Hunt.
+
+Batch:
+1. git -C "$HOME/Escape_Room_Treasure_Hunt" log --oneline -10; git status
+2. full file list of source: find . -type f | sort
+
+两个副本都和源目录**完全一致**（diff 无差异），`Escape_Room_Treasure_Hunt` 只是多了一个 `.git` 目录——看来之前中断的会话不仅复制完成了，还初始化了 git 仓库。我确认一下 git 状 态，并查看项目核心代码文件：
+  [tool] shell (1/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt\" && git log --oneline -15 2>&1; echo \"---状态---\"; git status -s 2>&1 | head -5"}
+  [tool] shell (2/2) {"command":"cd ~/storage/shared/tmp_my/\"Escape Room Treasure Hunt\" && find . -type f | sort | tail -30; echo \"===== 代码行数统计 =====\"; wc -l BT/*.py NEW_...
+  | 5d2da72 first commit
+  | ---状态---
+  |
+  | exit_code=0
+  | (49 ms)
+  | ./NEW_Borad/mycode/driver/tool/oledfont.h
+  | ./NEW_Borad/mycode/driver/tool/sys.c
+  | ./NEW_Borad/mycode/driver/tool/sys.h
+  | ./NEW_Borad/mycode/driver/wave.c
+  | ./NEW_Borad/mycode/driver/wave.h
+  | ./NEW_Borad/mycode/top/FSM.c
+  | ./NEW_Borad/mycode/top/FSM.h
+  | ./NEW_Borad/mycode/top/Lidra.c
+  | ./NEW_Borad/mycode/top/Lidra.h
+  | ./NEW_Borad/mycode/top/control.c
+  | ./NEW_Borad/mycode/top/control.h
+  | ./NEW_Borad/mycode/top/filter_algorithm.c
+  | ./NEW_Borad/mycode/top/filter_algorithm.h
+  | ./NEW_Borad/mycode/top/kinematics.c
+  | ... (44 more lines)
+  | (79 ms)
+[thinking]
+Good. The project is an embedded C project (smart car — MPU6050 IMU, motor, encoder, OLED, lidar, PID control, FSM, kinematics, position estimation, mapping) plus a Python `BT/` folder (Bluetooth-related Python scripts?).
+
+Now I need to read the key files to analyze. Let me read the Python files and the main top-level C files. Priorities:
+- BT/*.py (a.py..final.py, protocol.py, map.c/h)
+- NEW_Borad/mycode/top/na.c (696 lines - probably main logic), control.c (546), position.c (430), map.c (407), FSM.h, sensor.c, speed_pid.c, track_pid.c, kinematics.c
+
+Also there's likely a main.c somewhere — check where main() is. Let me grep.
+
+I'll read files in parallel batches. Keep output manageable: read the Python files first (they're probably small-ish), then C files.
+
+
+项目结构清楚了：这是一个**嵌入式智能小车项目**（C 语言，MPU6050 陀螺仪 + 电机 + 编码器 + 激光雷达 + PID + FSM 状态机），外加一个 Python 的 `BT` 目录。现在我来读核心代码。先看 Python 部分和 main 入口：
+  [tool] shell (1/2) {"command":"cd ~/storage/shared/tmp_my/\"Escape Room Treasure Hunt\" && wc -l BT/*.py; echo \"=== 查找 main 函数位置 ===\"; grep -rn \"int main\" --include=\"*...
+  [tool] read_file (2/2) {"path":"~/storage/shared/tmp_my/Escape Room Treasure Hunt/BT/final.py"}
+  |    871 BT/a.py
+  |   1054 BT/b.py
+  |   1151 BT/c.py
+  |    149 BT/d.py
+  |   1151 BT/final.py
+  |     88 BT/protocol.py
+  |   4464 total
+  | === 查找 main 函数位置 ===
+  |
+  | exit_code=1
+  | (67 ms)
+  | File does not exist
+  | (4 ms)
+[thinking]
+The read_file with ~ path failed. Need to use absolute path. Also no "int main" found in .c files — maybe main is elsewhere, let me search case-insensitively or find "main(" 
+read_file 不支持 `~` 路径，用绝对路径重试。同时 main 函数没搜到，可能命名不同，再搜一次：
+  [tool] read_file (1/2) {"path":"/data/data/com.termux/files/home/Escape_Room_Treasure_Hunt/BT/final.py"}
+  [tool] shell (2/2) {"command":"cd ~/storage/shared/tmp_my/\"Escape Room Treasure Hunt\" && grep -rniE \"void main|int main|main\\s*\\(\" --include=\"*.c\" --include=\"*.h\"...
+  | Tool error: PermissionError: Path escapes workspace
+  | (2 ms)
+  | === NEW_Borad 根目录内容 ===
+  | ./NEW_Borad
+  | ./NEW_Borad/mycode
+  | === mycode 根 ===
+  | ./NEW_Borad/mycode
+  | ./NEW_Borad/mycode/driver
+  | ./NEW_Borad/mycode/top
+  |
+  | exit_code=0
+  | (80 ms)
+[thinking]
+read_file failed: Path escapes workspace. The workspace seems to be restricted. So I should use shell (cat/sed) to read files instead. That's fine.
+
+Also no main() found — odd. The mycode has only driver/ and top/. Maybe main is in FSM.c or na.c... grep "main\s*(" returned nothing? Exit code 1 earlier for "int main". The second grep printed nothing before the === lines, meaning no match. So there's no main function — this is probably a library/module set to be integrated into another project (e.g., the 逐飞 SmartCar framework where main sits elsewhere).
+
+Let me use shell cat to read key files. Plan (batching independent reads):
+1. BT/final.py (1151 lines) — read in chunks via shell, plus protocol.py fully.
+2. NEW_Borad/mycode/top/na.c (696), control.c (546), position.c (430), map.c (407), sensor.c (272), Lidra.c (231), FSM.h, etc.
+
+That's a lot. I'll read the most important ones with head/sed. Let me batch:
+
+- cat protocol.py (88 lines) + head of final.py
+- head -100 of na.c, control.c etc.
+
+To keep output manageable, read files in reasonable chunks. Let me start with the Python side since "Escape Room Treasure Hunt" BT likely = Bluetooth app? a.py, b.py, c.py, final.py are iterations. d.py small (149). protocol.py 88 lines — read fully.
+
+Batch 1:
+1. cat protocol.py
+2. sed -n '1,120p' final.py
+3. head -60 of FSM.h + na.h + need.h + control.h
+
+
+`read_file` 只能访问工作区，改用 shell 读取。项目里没有 `main` 函数，说明这是要集成到其他框架（如逐飞智能车框架）的模块库。现在批量读关键文件——先看 Python 的协议与主程序：
+  [tool] shell (1/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt\" && echo \"########## protocol.py ##########\" && cat BT/protocol.py && echo \"########## d.py ########...
+  [tool] shell (2/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt\" && sed -n '1,150p' BT/final.py"}
+  | ########## protocol.py ##########
+  | # protocol.py
+  | import binascii
+  | import struct
+  |
+  |
+  | class BLEProtocol:
+  |     """
+  |     BLE通信协议类
+  |     """
+  |
+  |     # 服务和特征UUID
+  |     SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb"
+  |     WRITE_CHAR_UUID = "0000fff2-0000-1000-8000-00805f9b34fb"
+  | ... (227 more lines)
+  | (55 ms)
+  | import sys
+  | import json
+  | import re
+  | import struct
+  | import serial
+  | import time
+  | import serial.tools.list_ports
+  | from PyQt5.QtWidgets import (QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
+  |                              QWidget, QPushButton, QComboBox, QTextEdit, QLabel,
+  |                              QGroupBox, QTabWidget, QSpinBox, QDoubleSpinBox,
+  |                              QCheckBox, QFileDialog, QMessageBox, QSplitter,
+  |                              QProgressDialog, QListWidget, QDialog, QDialogButtonBox,
+  |                              QLineEdit)
+  | from PyQt5.QtCore import QTimer, Qt, QPointF, QThread, pyqtSignal
+  | ... (138 more lines)
+  | (43 ms)
+[thinking]
+The Python side is a PyQt5 host computer (host computer) with BLE (bleak) + serial support, including PID parameter debugging, data plotting (pyqtgraph), file transfer, etc.
+
+Now let me read the C code of NEW_Borad - the top-level module (FSM, control, na, position, map, sensor, etc.). These are the core. Let me read the key files. Also need to check why there is no main - there may be a main.c somewhere else, search again to confirm.
+
+
+Python 端确认是 PyQt5 上位机（BLE + 串口调试、PID 调参、pyqtgraph 绘图）。现在深入 C 代码核心——先看顶层控制逻辑：
+  [tool] shell (1/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt\" && echo \"########## FSM.h ##########\" && cat NEW_Borad/mycode/top/FSM.h && echo \"########## need.h ...
+  [tool] shell (2/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt\" && sed -n '1,120p' NEW_Borad/mycode/top/control.c"}
+  | ########## FSM.h ##########
+  | #ifndef FSM_H
+  | #define FSM_H
+  |
+  | #include "position.h"
+  | #include "na.h"
+  | #include "sensor.h"
+  |
+  | // 机器人状态枚举
+  | typedef enum
+  | {
+  |     ROBOT_IDLE = 0,
+  |     ROBOT_NAVIGATING,
+  |     ROBOT_CALIBRATING,
+  | ... (129 more lines)
+  | (56 ms)
+  | #include "control.h"
+  | #include "sensor.h"
+  | #include "motor.h"
+  | #include "filter_algorithm.h"
+  | #include "track_pid.h"
+  | #include "speed_pid.h"
+  | #include "time.h"
+  | #include "BT.h"
+  | #include <math.h>
+  | #include <stdio.h>
+  | #include "stdlib.h"
+  |
+  | // 地图方向对应的目标角度（度，基于地图坐标系）
+  | #define MAP_UP_ANGLE -90.0f  // 向上（+y方向）
+  | ... (108 more lines)
+  | (37 ms)
+[info] cleared 4 stale tool outputs (kept newest 4)
+[thinking]
+This is an STM32-based robot (HAL_GetTick, motor, encoder, MPU, BLE). It's a competition robot — "Escape Room Treasure Hunt" (密室寻宝) — likely a smart car competition: navigate a grid map, pursue/evade enemy, find treasure. Let me continue reading control.c and the other key files. I have limited rounds left, so let me read big chunks in parall
+这是一个基于 STM32 HAL 的四轮差速小车。继续读控制逻辑的中后段和其他核心模块：
+  [tool] shell (1/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt\" && sed -n '120,330p' NEW_Borad/mycode/top/control.c"}
+  [tool] shell (2/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt\" && sed -n '330,546p' NEW_Borad/mycode/top/control.c"}
+  |         // 打印时间戳和控制周期（检查周期稳定性）
+  |         log_print("\n[CYCLE] Timestamp: %d ms, dt: %.6f s\n", current_time - start_time, dt);
+  |
+  |         // 2. 读取当前角度（原始角度和相对角度）
+  |         float current_raw = GetYawAngle();               // 原始角度（弧度）
+  |         float current_angle = current_raw - start_angle; // 相对初始位置的角度（弧度）
+  |         log_print("[ANGLE] Raw: %.4f rad, Relative: %.4f rad\n", current_raw, current_angle);
+  |
+  |         // 3. 角度归一化（映射到 [-π, π]）
+  |         current_angle = fmod(current_angle, TWO_PI);
+  |         if (current_angle > PI)
+  |         {
+  |             current_angle -= TWO_PI;
+  |         }
+  | ... (199 more lines)
+  | (40 ms)
+  | // void left()
+  | //{
+  | //     // uint8_t result = differential_rotate_in_place(M_PI / 2, // 目标角度（顺时针）
+  | //     //                                               6.0f,     // 基础速度
+  | //     //                                               5000);    // 超时时间
+  | //     turn_left();
+  | //     if (result == 0)
+  | //     {
+  | // #if DEBUG_PRINT
+  | //         log_print("turn left finished");
+  | // #endif
+  | //     }
+  | //     else
+  | //     {
+  | ... (205 more lines)
+  | (39 ms)
+[info] cleared 10 stale tool outputs (kept newest 4)
+[thinking]
+Now I've read control.c fully. Very important findings:
+
+**BUG 1 (critical, units mismatch):** `map_dir_to_robot_action(Direction map_dir, float *current_pose)` — `current_pose` is a float (degrees presumably), and:
+```c
+float angle_diff = calculate_angle_diff(target_angle_deg, current_angle_deg);
+```
+But `calculate_angle_diff` is designed for **radians**: it wraps at `PI` / `-PI`. Here it's passed **degrees** (target_angle_deg like -90, 0, 90). So the wrapping `if (diff > PI) diff -= TWO_PI;` only triggers when diff > 3.14 degrees! E.g. target=0, current=359 → diff = -359, no wrap → angle_diff = -359 → turn_right 180°+ instead of turning left 1°. Also `ANGLE_TOLERANCE_forward 20.0f` (degrees) — but wrapping bug means anything crossing ±180° boundary misbehaves. This is a genuine units bug: calculate_angle_diff expects radians, gets degrees.
+
+Also `MAP_LEFT_ANGLE -0.0f` — left is -0.0 which equals 0 → indistinguishable from right! Left and right both map to 0°. That's clearly wrong: left should be 180° (or -180°). So DIRECTION_LEFT and DIRECTION_RIGHT are identical → robot can't tell left from right. MAJOR BUG.
+
+**BUG 2:** In `differential_rotate_in_place`, the comment says PID with `speed_scale` max 0.8, max_output 3.4... The while(1) loop with HAL_Delay blocking — blocking inside presumably an ISR or main loop; also integral windup guard: `max_integral = max_output/ki` = 3.4/0.06 ≈ 56.7 (rad·s) fine.
+
+Also dt = HAL_GetTick diff /1000 — if tick wraps... minor.
+
+Division by dt when dt==0: first iteration dt=0 → `diff = (angle_err - last_err)/dt` → division by zero → NaN/Inf! First loop iteration: last_time = start_time = current_time → dt = 0. Then in PID compute: `float diff = (angle_err - angle_pid->last_err) / dt;` → 0/0 → NaN. Then d_term NaN, speed_scale NaN, comparisons with NaN false, so speed_scale stays NaN → target speeds NaN → (int16_t)round(NaN) → undefined (0 or INT16_MIN) → PWM garbage! That's a real bug: **division by zero on first iteration**. Actually wait — does the code compute p/i/d each loop? yes. dt=0 on first iteration → NaN. This is a genuine bug. Unless HAL_GetTick changes between start_time assignment and loop's current_time — they're consecutive statements, likely same tick → dt=0. Real risk.
+
+**BUG 3:** In `differential_rotate_in_place`, angle relative: `current_angle = current_raw - start_angle` then normalized to [-π,π]; err = calculate_angle_diff(target, current). Fine-ish. But `speed_scale` clamped to ±0.8 while `ANGLE_TOLERANCE 0.017 rad ≈ 1°`; blocking loop with 50ms period; timeout ok.
+
+**BUG 4:** Encoder sign flipping: lf, rf, rb negated but lb not — maybe intentional due to wiring, but combined with targets: target_fl = -base*scale, target_fr = +base*scale... For pure rotation, left wheels backward, right forward: target_fl = -base*scale (left backward), fr = +base*scale. OK. But then `encoder.lf_speed = -encoder.lf_speed` etc. — the sign corrections may be compensating hardware. Can't judge without hardware, but the asymmetry (lb not negated) is suspicious. Wait, they negate lf, rf, rb but not lb. If hardware symmetric, all four would need same treatment. Could be a bug or wiring quirk. Flag as suspicious.
+
+**BUG 5:** `map_dir_to_robot_action` returns 1 for STOP and -1 for invalid, 1 for actions — inconsistent return semantics; also the function only *prints*/executes the action, doesn't verify completion. Turn actions: turn_left(TURN_SPEED) sets wheel speeds — non-blocking; but `forward()` is closed-loop continuous. The FSM presumably calls these repeatedly.
+
+`ANGLE_TOLERANCE_forward 20.0f` degrees — 20° tolerance is large; combined with the ±0.0f left bug, real trouble.
+
+**BUG 6:** In turn_left/turn_right/turn_back there's no encoder feedback at all — open loop speed commands; robot may drift. The commented-out differential_rotate_in_place calls in left()/right()/back() show they abandoned closed-loop turning. Also `left()`/`right()` commented code references `result` out of scope (would be compile error if uncommented — actually `result` declared inside the commented call line, so `if (result == 0)` uses undeclared var → compile error if uncommented).
+
+Now I still need to see: control.h, FSM.c (robot_update, lidar_it etc.), position.c (Kalman), map.c/h, na.c (A*), sensor.c, motor.c, speed_pid.c, track_pid.c, BT.c, time.c, and the Python files. Let me read the next batch: FSM.c + control.h. Then na.c + map.c. Then position.c + sensor/filter. Then remaining + python.
+
+Let me batch: call 1: `cat NEW_Borad/mycode/top/FSM.c` (if exists) plus control.h. call 2: `cat na.c` maybe long — sed portions. Let me first list top dir files with sizes to
+`control.c` 已经暴露了几个可疑点（比如左转角度定义为 `-0.0f`、度/弧度混用）。继续看 FSM 状态机和导航 A* 的实现：
+  [tool] shell (1/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt/NEW_Borad/mycode/top\" && ls -la *.c *.h | awk '{print $5, $9}' && echo \"########## control.h #########...
+  [tool] shell (2/2) {"command":"cd \"$HOME/Escape_Room_Treasure_Hunt/NEW_Borad/mycode/top\" && wc -l FSM.c na.c map.c position.c sensor.c motor.c speed_pid.c track_pid.c fil...
+  | 16542 FSM.c
+  | 1786 FSM.h
+  | 6514 Lidra.c
+  | 1405 Lidra.h
+  | 20255 control.c
+  | 1099 control.h
+  | 5878 filter_algorithm.c
+  | 1438 filter_algorithm.h
+  | 4885 kinematics.c
+  | 946 kinematics.h
+  | 17900 map.c
+  | 2111 map.h
+  | 22116 na.c
+  | 1926 na.h
+  | ... (53 more lines)
+  | (59 ms)
+  |   584 FSM.c
+  |   696 na.c
+  |   407 map.c
+  |   430 position.c
+  |   272 sensor.c
+  |   121 speed_pid.c
+  |   142 track_pid.c
+  |   189 filter_algorithm.c
+  |  2841 total
+  | ########## FSM.c ##########
+  | #include "FSM.h"
+  | #include "arm_math.h"
+  | #include "Lidra.h"
+  | #include "control.h"
+  | ... (198 more lines)
+  | (52 ms)
+Reached maximum tool rounds; rephrase or continue.
+  tokens: 59140 prompt + 4765 completion (34816 cached) in 10 calls
+
+You >
