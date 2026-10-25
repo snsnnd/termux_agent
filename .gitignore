@@ -1,0 +1,9 @@
+# runtime artifacts — regenerated on every run, never merge cleanly
+__pycache__/
+*.pyc
+data/memory.db
+
+# agent runtime state
+workspace/.snapshots/
+workspace/.agent_jobs/
+*.log
