@@ -77,6 +77,11 @@ TRACE_LINE_CAP = 240     # chars of tool output kept per line
 TRACE_ARGS_CAP = 120     # chars of serialized args kept per line
 TRACE_TOTAL_CAP = 1800   # chars for the whole trace block of one turn
 
+# what to log for a call that was dispatched but whose result never came back
+LOST_RESULT = ("[interrupted while running - result not recorded; the side "
+               "effect may already have happened, check the real state "
+               "before retrying]")
+
 # ---------------------------------------------------------------- tokens
 _TOKEN_SCALE = 1.0
 
@@ -163,6 +168,7 @@ class Agent:
         done = False
         streamed = [0]
         trace = []          # work log of this turn, persisted on any ending
+        pending = []        # tool calls dispatched but not yet logged
 
         def delta(t):
             if t:
@@ -205,7 +211,9 @@ class Agent:
 
                 messages.append(message)
 
+                pending = message["tool_calls"]
                 results = await self._run_tools(message["tool_calls"], emit)
+                pending = []
                 for call, (result, ms) in zip(message["tool_calls"], results):
                     emit({"type": "tool_result", "result": result, "ms": ms})
                     self._trace_add(trace, call, result)
@@ -270,6 +278,11 @@ class Agent:
             # would only see "[interrupted by user]" and redo everything.
             if user_stored and not done:
                 try:
+                    for call in pending:
+                        # dispatched but never returned: the side effect may
+                        # already be on disk, only the result was lost - say
+                        # so, or the next turn blindly repeats the same call
+                        self._trace_add(trace, call, LOST_RESULT)
                     self.memory.add(
                         session, "assistant",
                         self._trace_text(trace, "[interrupted by user]"))
