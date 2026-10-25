@@ -21,6 +21,10 @@ Other responsibilities:
   estimator (EMA), session totals land in meta for /usage
 - interrupt consistency: a cancelled turn stores "[interrupted by user]"
   so history never contains dangling user messages
+- work log: every tool call+result of a turn is summarized into a capped
+  `[work log ...]` block stored with the answer, so a turn cut off by an
+  interrupt or the round cap leaves a resume trail instead of forcing the
+  next turn to redo the same work (the block is stored, never shown in UI)
 - partial replies: if the stream dies after output was shown, the turn
   finishes with the partial text instead of duplicating it via retry
 
@@ -66,6 +70,12 @@ When the user asks you to perform a task:
 CLEARED = "[old tool output cleared to save context]"
 MAX_FETCH = 300          # hard cap on rows fetched from DB per turn
 KEEP_TOOL_OUTPUTS = 4    # newest tool outputs kept verbatim inside one turn
+
+# persisted work log: one line per tool call, so a turn that ends early
+# (interrupt / round cap) still leaves a resume trail in the DB
+TRACE_LINE_CAP = 240     # chars of tool output kept per line
+TRACE_ARGS_CAP = 120     # chars of serialized args kept per line
+TRACE_TOTAL_CAP = 1800   # chars for the whole trace block of one turn
 
 # ---------------------------------------------------------------- tokens
 _TOKEN_SCALE = 1.0
@@ -152,6 +162,7 @@ class Agent:
         user_stored = False
         done = False
         streamed = [0]
+        trace = []          # work log of this turn, persisted on any ending
 
         def delta(t):
             if t:
@@ -182,19 +193,22 @@ class Agent:
                     answer = (message.get("content") or "").strip() \
                         or "(empty response)"
                     done = True
-                    return self._finish(emit, session, answer, streamed[0])
+                    return self._finish(emit, session, answer, streamed[0],
+                                        trace)
 
                 if partial:
                     answer = (message.get("content") or "").strip() \
                         or "[response interrupted]"
                     done = True
-                    return self._finish(emit, session, answer, streamed[0])
+                    return self._finish(emit, session, answer, streamed[0],
+                                        trace)
 
                 messages.append(message)
 
                 results = await self._run_tools(message["tool_calls"], emit)
                 for call, (result, ms) in zip(message["tool_calls"], results):
                     emit({"type": "tool_result", "result": result, "ms": ms})
+                    self._trace_add(trace, call, result)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": call.get("id", ""),
@@ -241,21 +255,24 @@ class Agent:
             done = True
             if answer:
                 return self._finish(emit, session, answer,
-                                    streamed[0] - seen)
+                                    streamed[0] - seen, trace)
             # wrap-up failed/empty: keep a VISIBLE canned line
             # (streamed[] is per-turn >0 here -> must force answer event)
             answer = ("Stalled: the same tool call returned the same "
                       "result twice; try a different approach."
                       if stalled else
                       "Reached maximum tool rounds; rephrase or continue.")
-            return self._finish(emit, session, answer, 0)
+            return self._finish(emit, session, answer, 0, trace)
 
         except (asyncio.CancelledError, KeyboardInterrupt):
-            # keep history consistent: no dangling unanswered user message
+            # keep history consistent: no dangling unanswered user message,
+            # AND leave a resume trail - without the trace the next turn
+            # would only see "[interrupted by user]" and redo everything.
             if user_stored and not done:
                 try:
-                    self.memory.add(session, "assistant",
-                                    "[interrupted by user]")
+                    self.memory.add(
+                        session, "assistant",
+                        self._trace_text(trace, "[interrupted by user]"))
                 except Exception:
                     pass
             raise
@@ -309,6 +326,38 @@ class Agent:
             outs.append(f"{len(r)}:{r[:300]}")
         return (tuple(calls), tuple(outs))
 
+    @staticmethod
+    def _trace_add(trace, call, result):
+        """Append one `- tool(args) -> output` line to the turn's work log."""
+        fn = call.get("function") or {}
+        name = fn.get("name", "?")
+        raw = fn.get("arguments", "")
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            args = json.dumps(parsed, ensure_ascii=False, sort_keys=True)
+        except (TypeError, ValueError):
+            args = str(raw)
+        if len(args) > TRACE_ARGS_CAP:
+            args = args[:TRACE_ARGS_CAP] + "..."
+        out = " ".join((result or "").split())
+        if len(out) > TRACE_LINE_CAP:
+            out = out[:TRACE_LINE_CAP] + "..."
+        line = f"- {name}({args}) -> {out}"
+        if sum(len(x) + 1 for x in trace) + len(line) > TRACE_TOTAL_CAP:
+            return
+        trace.append(line)
+
+    @staticmethod
+    def _trace_text(trace, answer):
+        """Answer prefixed with the work log, so a turn that stopped early
+        still tells the next turn what was already tried and what came back.
+        Not emitted to the UI - only stored in history."""
+        if not trace:
+            return answer
+        return ("[work log - tools executed this turn, with their results]\n"
+                + "\n".join(trace)
+                + "\n[/work log]\n\n" + answer)
+
     async def _ask(self, messages, emit, delta, think, usage, with_tools=True):
         """One LLM round; converts mid-stream failures into partial replies."""
         self._pending_est = self._estimate(messages) + (
@@ -334,8 +383,10 @@ class Agent:
                           f"({type(e).__name__})"})
             return partial
 
-    def _finish(self, emit, session, answer, streamed):
-        self.memory.add(session, "assistant", answer)
+    def _finish(self, emit, session, answer, streamed, trace=None):
+        # store answer + work log (trace invisible to the UI, only to history)
+        self.memory.add(session, "assistant",
+                        self._trace_text(trace or [], answer))
         if streamed:
             emit({"type": "stream_end"})
         else:
