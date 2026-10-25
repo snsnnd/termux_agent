@@ -198,9 +198,12 @@ class Agent:
                         "content": cap_text(result, self.tool_result_limit),
                     })
 
+            # synthesized locally: never streamed on screen, must print
+            # (streamed[] counts deltas from ALL rounds and is >0 here,
+            # which would wrongly emit only stream_end and hide the text)
             answer = "Reached maximum tool rounds; rephrase or continue."
             done = True
-            return self._finish(emit, session, answer, streamed[0])
+            return self._finish(emit, session, answer, 0)
 
         except (asyncio.CancelledError, KeyboardInterrupt):
             # keep history consistent: no dangling unanswered user message
