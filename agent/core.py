@@ -112,7 +112,7 @@ def _empty_usage():
 
 
 class Agent:
-    def __init__(self, llm, tools, memory, max_rounds=10, context=None,
+    def __init__(self, llm, tools, memory, max_rounds=25, context=None,
                  approve=None):
         cfg = context or {}
         self.llm = llm
@@ -168,6 +168,9 @@ class Agent:
             self.memory.add(session, "user", text)
             user_stored = True
 
+            prev_sig = None
+            stalled = False
+
             for _ in range(self.max_rounds):
                 self._clear_stale_tool_outputs(messages, emit)
                 emit({"type": "status", "text": "Thinking"})
@@ -198,11 +201,53 @@ class Agent:
                         "content": cap_text(result, self.tool_result_limit),
                     })
 
-            # synthesized locally: never streamed on screen, must print
-            # (streamed[] counts deltas from ALL rounds and is >0 here,
-            # which would wrongly emit only stream_end and hide the text)
-            answer = "Reached maximum tool rounds; rephrase or continue."
+                # stall detection: identical calls AND identical results
+                # twice in a row means another retry is pointless
+                sig = self._stall_sig(message["tool_calls"], results)
+                if sig == prev_sig:
+                    stalled = True
+                    emit({"type": "info",
+                          "text": "stalled: same tool call with identical "
+                                  "result twice in a row"})
+                    break
+                prev_sig = sig
+
+            # rounds exhausted or the model is looping: one tools-off call
+            # so it hands back a real progress summary. That text is stored
+            # as this turn's answer, so the next "继续" knows where we stop.
+            messages.append({
+                "role": "user",
+                "content": (
+                    "You repeated the exact same tool call with identical "
+                    "results, so retrying cannot help. WITHOUT calling any "
+                    "tool, summarize what you have learned so far, what "
+                    "remains, and one concrete different approach to try."
+                    if stalled else
+                    "The tool budget for this turn is exhausted. WITHOUT "
+                    "calling any tool, summarize: what has been done, key "
+                    "findings so far, what remains, and what to do next."
+                ),
+            })
+            seen = streamed[0]
+            wrap = None
+            try:
+                wrap = await self._ask(messages, emit, delta, think, usage,
+                                       with_tools=False)
+            except LLMError:
+                pass
+            if wrap is not None:
+                wrap.pop("_partial", False)
+            answer = ((wrap or {}).get("content") or "").strip()
             done = True
+            if answer:
+                return self._finish(emit, session, answer,
+                                    streamed[0] - seen)
+            # wrap-up failed/empty: keep a VISIBLE canned line
+            # (streamed[] is per-turn >0 here -> must force answer event)
+            answer = ("Stalled: the same tool call returned the same "
+                      "result twice; try a different approach."
+                      if stalled else
+                      "Reached maximum tool rounds; rephrase or continue.")
             return self._finish(emit, session, answer, 0)
 
         except (asyncio.CancelledError, KeyboardInterrupt):
@@ -244,13 +289,34 @@ class Agent:
         emit({"type": "info", "text": f"session '{session}' cleared"})
 
     # ------------------------------------------------------ llm plumbing
-    async def _ask(self, messages, emit, delta, think, usage):
+    @staticmethod
+    def _stall_sig(tool_calls, results):
+        """Fingerprint of one round: normalized calls + what came back.
+        Same fingerprint twice in a row = retrying can't help."""
+        calls = []
+        for c in tool_calls:
+            fn = c.get("function") or {}
+            raw = fn.get("arguments", "")
+            try:
+                parsed = json.loads(raw) if isinstance(raw, str) else raw
+                norm = json.dumps(parsed, sort_keys=True)
+            except (TypeError, ValueError):
+                norm = str(raw)
+            calls.append(f"{fn.get('name', '')}:{norm}")
+        outs = []
+        for r, _ms in results:
+            r = r or ""
+            outs.append(f"{len(r)}:{r[:300]}")
+        return (tuple(calls), tuple(outs))
+
+    async def _ask(self, messages, emit, delta, think, usage, with_tools=True):
         """One LLM round; converts mid-stream failures into partial replies."""
-        self._pending_est = self._estimate(messages) + self._schema_tokens
+        self._pending_est = self._estimate(messages) + (
+            self._schema_tokens if with_tools else 0)
         try:
             return await self.llm.chat(
                 messages,
-                self.tools.definitions(),
+                self.tools.definitions() if with_tools else None,
                 on_delta=delta,
                 on_think=think,
                 on_status=lambda s: emit({"type": "status", "text": s}),

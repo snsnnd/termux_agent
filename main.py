@@ -229,7 +229,7 @@ async def main(argv):
 
     agent = Agent(
         llm, tools, memory,
-        config.get("max_tool_rounds", 10),
+        config.get("max_tool_rounds", 25),
         context=config,
         # approval=ask routes side-effect tools through the terminal
         approve=lambda desc: ui.approve(desc, src.read_line),
