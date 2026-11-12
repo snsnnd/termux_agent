@@ -1,0 +1,17 @@
+build/
+*.p12
+*.keystore
+*.private.json*
+__pycache__/
+.env
+.env.*
+config.json
+.phone-bridge.json
+local.properties
+key.properties
+*.db
+*.db-shm
+*.db-wal
+*.tar
+*.tar.gz
+workspace/

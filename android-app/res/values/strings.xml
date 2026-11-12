@@ -1,0 +1,3 @@
+<resources>
+    <string name="service_description">供本机 Termux Agent 读取当前界面、点击、滑动、输入和返回。不需要 root。只在本机提供带密钥的接口；默认暂停。界面文字可能发送给你配置的 AI 服务商。请勿用于密码、支付等敏感界面。你可随时在 Agent Bridge 中暂停，或在系统设置关闭此服务。</string>
+</resources>
