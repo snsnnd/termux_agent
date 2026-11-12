@@ -29,6 +29,6 @@ if not (classes / "local/termux/agentbridge/VisualSession.class").exists():
 out = root / "build" / "test-classes"
 out.mkdir(parents=True, exist_ok=True)
 cp = os.pathsep.join(map(str, [jar, classes, args.android.resolve()]))
-subprocess.run(["javac", "-encoding", "UTF-8", "-cp", cp, "-d", str(out), str(root / "tests/EfficiencyTest.java"), str(root / "tests/PolicyTest.java")], check=True)
-for test in ("PolicyTest", "EfficiencyTest"):
+subprocess.run(["javac", "-encoding", "UTF-8", "-cp", cp, "-d", str(out), str(root / "tests/EfficiencyTest.java"), str(root / "tests/PolicyTest.java"), str(root / "tests/Phase1Test.java")], check=True)
+for test in ("PolicyTest", "EfficiencyTest", "Phase1Test"):
     subprocess.run(["java", "-cp", str(out) + os.pathsep + cp, "local.termux.agentbridge." + test], check=True)

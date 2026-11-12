@@ -36,7 +36,7 @@ public final class AgentStore extends SQLiteOpenHelper {
         return instance;
     }
     private AgentStore(Context context) {
-        super(context, "agent.db", null, 1);
+        super(context, "agent.db", null, 2);
         this.context = context;
         prefs = context.getSharedPreferences("agent", Context.MODE_PRIVATE);
         try { workspace = new File(context.getFilesDir(), "workspace").getCanonicalFile(); }
@@ -49,8 +49,14 @@ public final class AgentStore extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT,session TEXT,role TEXT,content TEXT,kind TEXT,created INTEGER)");
         db.execSQL("CREATE INDEX msg_session ON messages(session,id)");
         db.execSQL("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT)");
+        createRunTables(db);
     }
-    @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) { }
+    @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) { createRunTables(db); }
+    private static void createRunTables(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY,session TEXT,goal TEXT,phase TEXT,spec TEXT,started INTEGER,ended INTEGER,notified INTEGER DEFAULT 0)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,run TEXT,ts INTEGER,tool TEXT,action TEXT,target TEXT,decision TEXT,result TEXT,duration INTEGER)");
+        db.execSQL("CREATE INDEX IF NOT EXISTS audit_run ON audit(run,id)");
+    }
     synchronized void session(String id, String title) {
         ContentValues row = new ContentValues();
         row.put("id", id); row.put("title", title); row.put("updated", System.currentTimeMillis());
@@ -121,6 +127,68 @@ public final class AgentStore extends SQLiteOpenHelper {
     synchronized void setMeta(String key,String value) {
         ContentValues row=new ContentValues();row.put("key",key);row.put("value",value);
         getWritableDatabase().insertWithOnConflict("meta",null,row,SQLiteDatabase.CONFLICT_REPLACE);
+    }
+    synchronized void startRun(AgentTask task) throws Exception {
+        ContentValues row=new ContentValues();
+        row.put("id",task.spec.runId);row.put("session",task.spec.session);
+        row.put("goal",task.spec.goal);row.put("phase",task.phase.name());
+        row.put("spec",task.spec.toJson().toString());
+        row.put("started",task.startedAt);row.put("ended",0L);row.put("notified",0);
+        getWritableDatabase().insertWithOnConflict("runs",null,row,SQLiteDatabase.CONFLICT_REPLACE);
+        revision.incrementAndGet();
+    }
+    synchronized void updateRunPhase(String id,String phase) {
+        ContentValues row=new ContentValues();row.put("phase",phase);
+        getWritableDatabase().update("runs",row,"id=?",new String[]{id});
+    }
+    synchronized void finishRun(String id,String phase) {
+        ContentValues row=new ContentValues();row.put("phase",phase);row.put("ended",System.currentTimeMillis());
+        getWritableDatabase().update("runs",row,"id=?",new String[]{id});
+        revision.incrementAndGet();
+    }
+    synchronized void markRunNotified(String id) {
+        ContentValues row=new ContentValues();row.put("notified",1);
+        getWritableDatabase().update("runs",row,"id=?",new String[]{id});
+    }
+    synchronized JSONArray unfinishedRuns() throws Exception {
+        JSONArray rows=new JSONArray();
+        try(Cursor c=getReadableDatabase().rawQuery(
+                "SELECT spec,phase,started,ended,notified FROM runs WHERE (ended IS NULL OR ended=0) AND notified=0 ORDER BY started",null)) {
+            while(c.moveToNext()) {
+                JSONObject row;
+                try{row=new JSONObject(c.getString(0));}
+                catch(Exception bad){row=new JSONObject().put("runId","unknown-"+c.getPosition());}
+                row.put("phase",c.getString(1)).put("startedAt",c.getLong(2))
+                    .put("endedAt",c.getLong(3)).put("notified",c.getInt(4)!=0);
+                if(!row.has("session"))row.put("session","main");
+                rows.put(row);
+            }
+        }
+        return rows;
+    }
+    synchronized void addAudit(JSONObject row) throws Exception {
+        ContentValues values=new ContentValues();
+        values.put("run",row.optString("run",""));values.put("ts",row.optLong("ts",System.currentTimeMillis()));
+        values.put("tool",row.optString("tool",""));values.put("action",row.optString("action",""));
+        values.put("target",row.optString("target",""));values.put("decision",row.optString("decision",""));
+        values.put("result",row.optString("result",""));values.put("duration",row.optLong("duration",0));
+        getWritableDatabase().insertOrThrow("audit",null,values);
+    }
+    synchronized JSONArray auditFor(String runId,int limit) throws Exception {
+        JSONArray rows=new JSONArray();
+        try(Cursor c=getReadableDatabase().rawQuery(
+                "SELECT tool,action,target,decision,result,ts,duration FROM audit WHERE run=? ORDER BY id DESC LIMIT ?",
+                new String[]{runId,String.valueOf(Math.max(1,Math.min(1000,limit)))})) {
+            while(c.moveToNext())rows.put(new JSONObject().put("run",runId).put("tool",c.getString(0))
+                .put("action",c.getString(1)).put("target",c.getString(2)).put("decision",c.getString(3))
+                .put("result",c.getString(4)).put("ts",c.getLong(5)).put("duration",c.getLong(6)));
+        }
+        return rows;
+    }
+    synchronized String lastRunId() {
+        try(Cursor c=getReadableDatabase().rawQuery("SELECT id FROM runs ORDER BY started DESC LIMIT 1",null)) {
+            return c.moveToFirst()?c.getString(0):"";
+        }
     }
     private SecretKey key() throws Exception {
         KeyStore store=KeyStore.getInstance("AndroidKeyStore");store.load(null);

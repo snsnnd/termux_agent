@@ -41,4 +41,17 @@ public final class AgentPolicy {
     static boolean sensitiveCommand(String command) {
         return java.util.regex.Pattern.compile("(?i)(^|[^a-z0-9_])(rm|rmdir|reboot|recovery|su|pm|settings|dd|mkfs|am)([^a-z0-9_]|$)").matcher(command).find();
     }
+    static boolean outward(String name, String action) {
+        if (name == null) return false;
+        String value = action == null ? "" : action;
+        if (name.equals("phone_act")) {
+            return value.equals("click") || value.equals("long_click") || value.equals("tap") || value.equals("set_text");
+        }
+        if (name.equals("shell") || name.equals("write_file") || name.equals("edit_file")
+                || name.equals("undo") || name.equals("confirm_action")) return true;
+        return name.equals("job") && value.equals("kill");
+    }
+    static boolean targetAllowed(String pkg, CapabilitySet packages) {
+        return packages == null || packages.packageAllowed(pkg);
+    }
 }
