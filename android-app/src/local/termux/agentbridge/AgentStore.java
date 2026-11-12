@@ -61,6 +61,7 @@ public final class AgentStore extends SQLiteOpenHelper {
         prefs.edit().putString("session", id).apply(); return id;
     }
     String selected() { return prefs.getString("session", "main"); }
+    int visualBudget(){return Math.max(1,Math.min(5,prefs.getInt("visual_budget",3)));}
     synchronized void rename(String id, String title) {
         ContentValues row = new ContentValues(); row.put("title", title);
         getWritableDatabase().update("sessions", row, "id=?", new String[]{id});

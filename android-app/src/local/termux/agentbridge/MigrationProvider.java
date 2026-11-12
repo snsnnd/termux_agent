@@ -48,13 +48,42 @@ public final class MigrationProvider extends ContentProvider {
                 if(AgentService.isBusy())throw new IllegalStateException("Wait for the active task before developer tests");
                 out=selftest(store);
             }
-            else if(method.equals("history_metrics")) {
+             else if(method.equals("history_metrics")) {
                 out=new JSONObject(MainActivity.historyMetrics.toString());JSONArray stats=new JSONArray();
                 try(Cursor c=store.getReadableDatabase().rawQuery("SELECT session,COUNT(*),SUM(LENGTH(content)),MAX(LENGTH(content)) FROM messages GROUP BY session",null)){
                     while(c.moveToNext())stats.put(new JSONObject().put("session",c.getString(0)).put("rows",c.getLong(1)).put("chars",c.getLong(2)).put("max_chars",c.getLong(3)));
                 }
-                out.put("session_stats",stats);
-            }
+                 out.put("session_stats",stats);
+             }
+             else if(method.equals("ui_metrics")) {
+                 if(AgentService.isBusy())throw new IllegalStateException("Wait for the active task before developer tests");
+                 BridgeService bridge=BridgeService.current;if(bridge==null)throw new IllegalStateException("Accessibility disconnected");
+                 JSONObject raw=bridge.nativeCall("/observe",new JSONObject());if(!raw.optBoolean("ok"))throw new IllegalStateException(raw.optString("error"));
+                 JSONObject compact=ObservationCodec.encode(raw,"",false,false),same=ObservationCodec.encode(raw,"",false,true);
+                 out=new JSONObject().put("raw_chars",raw.toString().length()).put("compact_chars",compact.toString().length()).put("unchanged_chars",same.toString().length())
+                     .put("raw_nodes",raw.getJSONArray("nodes").length()).put("compact_rows",compact.getJSONArray("nodes").length()).put("token_estimate",false);
+             }
+             else if(method.equals("ui_selftest")) {
+                 if(AgentService.isBusy())throw new IllegalStateException("Wait for the active task before developer tests");
+                 BridgeService bridge=BridgeService.current;if(bridge==null)throw new IllegalStateException("Accessibility disconnected");
+                 JSONObject current=bridge.nativeCall("/observe",new JSONObject());
+                 if(!current.optBoolean("ok")||!current.optString("package").equals("com.android.settings"))throw new SecurityException("Open non-sensitive system Settings first");
+                 NativeTools tools=new NativeTools(store);JSONArray passed=new JSONArray();tools.beginTask();
+                 try {
+                     JSONObject action=new JSONObject(tools.execute("phone_act",new JSONObject().put("action","launch").put("package","com.android.settings")));
+                     JSONObject ui=action.optJSONObject("ui");if(!action.optBoolean("ok")||ui==null||!ui.optBoolean("ok")||!ui.has("snapshot"))throw new AssertionError("post-action UI");
+                     passed.put("launch returns compact UI");
+                     JSONObject next=new JSONObject(tools.execute("phone_observe",new JSONObject()));
+                     if(!next.optBoolean("ok")||!next.has("snapshot"))throw new AssertionError("observe");passed.put("subsequent observation valid");
+                     if(ui.optString("scene").equals(next.optString("scene"))&&!next.optBoolean("unchanged"))throw new AssertionError("same scene not reused");
+                     passed.put("scene reuse or changed scene handled");
+                     if(!store.prefs.getBoolean("visual_consent",false)) {
+                         JSONObject denied=new JSONObject(tools.execute("phone_vision",new JSONObject().put("query","developer test")));
+                         if(denied.optBoolean("ok")||tools.visual.frame!=null||tools.visual.requests!=0)throw new AssertionError("visual consent gate");passed.put("disabled vision captures nothing");
+                     }
+                     out=new JSONObject().put("passed",passed).put("count",passed.length()).put("metrics",tools.metrics());
+                 }finally{tools.finishTask();}
+             }
             else if(method.equals("test_model")) {
                 if(!store.prefs.getBoolean("cloud_consent",false))throw new SecurityException("Owner cloud consent required in app");
                 store.session("native-selftest","原生连接自检");
@@ -67,7 +96,8 @@ public final class MigrationProvider extends ContentProvider {
                     .put("sessions",store.sessions().length()).put("model",store.prefs.getString("model","deepseek-flash"))
                     .put("configured",!store.apiKey().isEmpty()).put("busy",AgentService.isBusy())
                     .put("cloud_consent",store.prefs.getBoolean("cloud_consent",false));
-                out.put("phone_confirmation",store.prefs.getString("phone_confirmation","task")).put("extended_automation",store.prefs.getBoolean("unattended_tools",false));
+                 out.put("phone_confirmation",store.prefs.getString("phone_confirmation","task")).put("extended_automation",store.prefs.getBoolean("unattended_tools",false));
+                 out.put("visual_consent",store.prefs.getBoolean("visual_consent",false)).put("visual_budget",store.visualBudget()).put("last_task_metrics",new JSONObject(store.meta("last_task_metrics","{}")));
                 AgentService service=AgentService.current;if(service!=null){out.put("task_status",service.status).put("task_granted",service.busy&&service.phoneTaskGrant==service.generation);
                     if(service.approval!=null)out.put("pending",new JSONObject().put("id",service.approval.id).put("tool",service.approval.name).put("task_scope",service.approval.taskGrant));}
                 BridgeService bridge=BridgeService.current;if(bridge!=null)out.put("phone",bridge.nativeCall("/status",new JSONObject()));

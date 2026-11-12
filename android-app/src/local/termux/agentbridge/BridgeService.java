@@ -8,6 +8,11 @@ import android.content.SharedPreferences;
 import android.content.pm.ResolveInfo;
 import android.graphics.Path;
 import android.graphics.Rect;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.hardware.HardwareBuffer;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -32,6 +37,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class BridgeService extends AccessibilityService {
     public static volatile BridgeService current;
@@ -44,6 +51,10 @@ public class BridgeService extends AccessibilityService {
     private volatile boolean running;
     private SharedPreferences prefs;
     private int visited;
+    private final ExecutorService captureExecutor=Executors.newSingleThreadExecutor();
+    private volatile long lastUiEvent;
+    private long windowSerial,snapshotCounter;
+    private final String snapshotPrefix=UUID.randomUUID().toString().substring(0,8);
 
     private android.util.DisplayMetrics displayMetrics() {
         android.util.DisplayMetrics metrics = new android.util.DisplayMetrics();
@@ -63,8 +74,8 @@ public class BridgeService extends AccessibilityService {
     }
 
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
-        // Window transitions invalidate all previously observed node handles.
-        clearSnapshot();
+        lastUiEvent=android.os.SystemClock.uptimeMillis();
+        if(event.getEventType()==AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED||event.getEventType()==AccessibilityEvent.TYPE_WINDOWS_CHANGED){windowSerial++;clearSnapshot();}
     }
 
     @Override public void onInterrupt() {
@@ -77,6 +88,7 @@ public class BridgeService extends AccessibilityService {
         current = null;
         try { if (server != null) server.close(); } catch (Exception ignored) { }
         clearSnapshot();
+        captureExecutor.shutdownNow();
         super.onDestroy();
     }
 
@@ -93,6 +105,7 @@ public class BridgeService extends AccessibilityService {
     }
 
     private <T> T onMain(Callable<T> callable) throws Exception {
+        if(Looper.myLooper()==Looper.getMainLooper())return callable.call();
         FutureTask<T> task = new FutureTask<>(callable);
         main.post(task);
         try { return task.get(5, TimeUnit.SECONDS); }
@@ -192,7 +205,9 @@ public class BridgeService extends AccessibilityService {
     private JSONObject route(String path, JSONObject body) throws Exception {
         if (path.equals("/status")) return ok().put("service", "connected")
             .put("control_allowed", prefs.getBoolean("allowed", false)).put("locked", locked())
-            .put("root_required", false).put("api", android.os.Build.VERSION.SDK_INT);
+            .put("root_required", false).put("api", android.os.Build.VERSION.SDK_INT)
+            .put("screenshot_capable",android.os.Build.VERSION.SDK_INT>=30&&getServiceInfo()!=null&&
+                (getServiceInfo().getCapabilities()&android.accessibilityservice.AccessibilityServiceInfo.CAPABILITY_CAN_TAKE_SCREENSHOT)!=0);
         if (!prefs.getBoolean("allowed", false)) return error("Control paused in Agent Bridge app.");
         if (locked()) return error("Screen locked. Ask the owner to unlock it manually.");
         if (path.equals("/apps")) return apps();
@@ -301,9 +316,9 @@ public class BridgeService extends AccessibilityService {
     private String fingerprint(AccessibilityNodeInfo node) {
         Rect r = new Rect();
         node.getBoundsInScreen(r);
-        return string(node.getPackageName()) + "|" + node.getViewIdResourceName() + "|" +
+        return string(node.getPackageName()) + "|" +node.getWindowId()+"|"+ node.getViewIdResourceName() + "|" +
             string(node.getClassName()) + "|" + r.toShortString() + "|" +
-            string(node.getText()) + "|" + string(node.getContentDescription());
+            string(node.getText()) + "|" + string(node.getContentDescription())+"|"+node.isEnabled()+"|"+node.isSelected()+"|"+node.isChecked()+"|"+node.isCheckable()+"|"+node.isClickable()+"|"+node.isEditable()+"|"+node.isScrollable()+"|"+node.isLongClickable();
     }
 
     private JSONObject observe() throws Exception {
@@ -313,10 +328,10 @@ public class BridgeService extends AccessibilityService {
         try {
             snapshotPackage = string(root.getPackageName());
             // Never expose this app's pairing screen to the model.
-            if (snapshotPackage.equals(getPackageName())) return error("Pairing screen is private. Open another app.");
+            if (snapshotPackage.equals(getPackageName())) return error("Agent app screen is private. Open the target app first.");
             JSONArray items = new JSONArray();
             visited = 0;
-            walk(root, items, 0);
+            walk(root, items, 0,-1);
             // Huawei tablet Settings uses separate left/right app windows.
             // Include only application windows belonging to this foreground app,
             // never an unrelated split-screen app, keyboard, or notification pane.
@@ -330,22 +345,24 @@ public class BridgeService extends AccessibilityService {
                     if (other == null) continue;
                     try {
                         if (snapshotPackage.equals(string(other.getPackageName()))) {
-                            walk(other, items, 0);
+                            walk(other, items, 0,-1);
                             windowsRead++;
                         }
                     } finally { other.recycle(); }
                 } finally { window.recycle(); }
             }
-            snapshot = UUID.randomUUID().toString();
+            snapshot = snapshotPrefix+"."+Long.toString(++snapshotCounter,36);
             android.util.DisplayMetrics dm = displayMetrics();
+            String scene=hash((snapshotPackage+"|"+dm.widthPixels+"x"+dm.heightPixels+"|"+fingerprints.toString()).getBytes(StandardCharsets.UTF_8)).substring(0,16);
             return ok().put("snapshot", snapshot).put("package", snapshotPackage)
+                .put("scene",scene)
                 .put("width", dm.widthPixels).put("height", dm.heightPixels)
                 .put("app_windows", windowsRead)
                 .put("nodes", items).put("truncated", nodes.size() >= 220 || visited >= 2000);
         } finally { root.recycle(); }
     }
 
-    private void walk(AccessibilityNodeInfo node, JSONArray items, int depth) throws Exception {
+    private void walk(AccessibilityNodeInfo node, JSONArray items, int depth,int clickParent) throws Exception {
         if (node == null || visited++ >= 2000 || nodes.size() >= 220 || depth > 40) return;
         if (node.isVisibleToUser() && !node.isPassword() &&
                 (node.getText() != null || node.getContentDescription() != null || node.isClickable() ||
@@ -353,6 +370,7 @@ public class BridgeService extends AccessibilityService {
             Rect r = new Rect();
             node.getBoundsInScreen(r);
             int id = nodes.size();
+            if(node.isClickable())clickParent=id;
             nodes.add(AccessibilityNodeInfo.obtain(node));
             fingerprints.add(fingerprint(node));
             items.put(new JSONObject().put("node_id", id).put("text", string(node.getText()))
@@ -361,6 +379,8 @@ public class BridgeService extends AccessibilityService {
                 .put("view_id", node.getViewIdResourceName()).put("class", string(node.getClassName()))
                 .put("bounds", new JSONArray(new int[]{r.left, r.top, r.right, r.bottom}))
                 .put("clickable", node.isClickable()).put("editable", node.isEditable())
+                .put("click_id",clickParent).put("long_clickable",node.isLongClickable())
+                .put("selected",node.isSelected()).put("checkable",node.isCheckable()).put("checked",node.isChecked())
                 .put("scrollable", node.isScrollable()).put("enabled", node.isEnabled()));
         }
         // Password subtrees are not inspected.
@@ -368,8 +388,112 @@ public class BridgeService extends AccessibilityService {
         for (int i = 0; i < node.getChildCount() && nodes.size() < 220 && visited < 2000; i++) {
             AccessibilityNodeInfo child = node.getChild(i);
             if (child != null) {
-                try { walk(child, items, depth + 1); } finally { child.recycle(); }
+                try { walk(child, items, depth + 1,clickParent); } finally { child.recycle(); }
             }
+        }
+    }
+
+    void awaitUiStable()throws InterruptedException {
+        long start=android.os.SystemClock.uptimeMillis();
+        do{Thread.sleep(80);}while((android.os.SystemClock.uptimeMillis()-start<300||android.os.SystemClock.uptimeMillis()-lastUiEvent<220)&&android.os.SystemClock.uptimeMillis()-start<1000);
+    }
+    static String hash(byte[] bytes)throws Exception {
+        byte[] digest=MessageDigest.getInstance("SHA-256").digest(bytes);StringBuilder out=new StringBuilder();
+        for(byte b:digest)out.append(String.format(java.util.Locale.ROOT,"%02x",b&255));return out.toString();
+    }
+    static final class Capture {
+        byte[] jpeg;String pkg,hash;Rect crop;int imageWidth,imageHeight;
+        ArrayList<Rect> allowed,masked;
+    }
+    private static final class CapturePlan {
+        String pkg;Rect crop;long serial;
+        final ArrayList<Rect> allowed=new ArrayList<>(),masked=new ArrayList<>();
+    }
+    private boolean protectedInput(AccessibilityNodeInfo node,int[] budget,int depth) {
+        if(node==null||!node.isVisibleToUser())return false;
+        if(budget[0]--<=0||depth>40)return true;
+        if(node.isPassword())return true;
+        String label=string(node.getText())+" "+string(node.getContentDescription());
+        if(label.trim().matches("^(请输入)?(登录|支付|交易|短信|手机|图形)?(密码|验证码).*$"))return true;
+        if(java.util.regex.Pattern.compile("付款码|收款码|收付款|确认支付|立即付款|支付密码|银行卡|银行账户|(?i)\\b(password|captcha|verification code|pay now|payment code|bank account)\\b").matcher(label).find())return true;
+        for(int i=0;i<node.getChildCount();i++) {
+            AccessibilityNodeInfo child=node.getChild(i);if(child==null)continue;
+            try{if(protectedInput(child,budget,depth+1))return true;}finally{child.recycle();}
+        }
+        return false;
+    }
+    private CapturePlan capturePlan(Rect region)throws Exception {
+        SharedPreferences agent=getSharedPreferences("agent",MODE_PRIVATE);
+        if(!agent.getBoolean("visual_consent",false)||!agent.getBoolean("cloud_consent",false))throw new SecurityException("截图和云端处理需要用户单独授权");
+        if(!prefs.getBoolean("allowed",false)||locked())throw new SecurityException("设备控制已暂停或屏幕锁定，拒绝截图");
+        android.os.PowerManager power=(android.os.PowerManager)getSystemService(POWER_SERVICE);
+        if(power!=null&&!power.isInteractive())throw new SecurityException("请先由用户亮屏并解锁");
+        if(android.os.Build.VERSION.SDK_INT<30||getServiceInfo()==null||
+            (getServiceInfo().getCapabilities()&android.accessibilityservice.AccessibilityServiceInfo.CAPABILITY_CAN_TAKE_SCREENSHOT)==0)
+            throw new IllegalStateException("系统截图能力未启用，请在系统设置重新开启本 App 无障碍服务");
+        AccessibilityNodeInfo root=getRootInActiveWindow();if(root==null)throw new IllegalStateException("无法确定前台 App，拒绝截图");
+        CapturePlan p=new CapturePlan();p.serial=windowSerial;
+        try {
+            p.pkg=string(root.getPackageName());if(p.pkg.equals(getPackageName()))throw new SecurityException("助手自身界面禁止截图");
+            if(!AgentPolicy.sensitiveReason(p.pkg,"","click").isEmpty())throw new SecurityException("支付、银行或系统授权应用禁止视觉上传");
+            if(protectedInput(root,new int[]{2000},0))throw new SecurityException("检测到密码或验证码区域，拒绝视觉上传");
+            Rect r=new Rect();root.getBoundsInScreen(r);if(!r.isEmpty())p.allowed.add(r);
+        }finally{root.recycle();}
+        boolean foundWindow=false;
+        for(AccessibilityWindowInfo w:getWindows()) {
+            try {
+                Rect bounds=new Rect();w.getBoundsInScreen(bounds);if(bounds.isEmpty())continue;
+                AccessibilityNodeInfo other=w.getRoot();String pkg="";
+                try {
+                    if(other!=null)pkg=string(other.getPackageName());
+                    if(w.getType()==AccessibilityWindowInfo.TYPE_APPLICATION&&p.pkg.equals(pkg)) {
+                        foundWindow=true;
+                        if(protectedInput(other,new int[]{2000},0))throw new SecurityException("检测到敏感输入窗口，拒绝视觉上传");
+                        p.allowed.add(new Rect(bounds));
+                    }else p.masked.add(new Rect(bounds));
+                }finally{if(other!=null)other.recycle();}
+            }finally{w.recycle();}
+        }
+        if(!foundWindow)throw new SecurityException("无法核对目标 App 的窗口范围，拒绝截图");
+        android.util.DisplayMetrics dm=displayMetrics();Rect screen=new Rect(0,0,dm.widthPixels,dm.heightPixels),union=new Rect();
+        for(Rect r:p.allowed){if(!r.intersect(screen))throw new SecurityException("窗口范围超出屏幕");union.union(r);}
+        p.crop=region==null?union:new Rect(region);
+        if(!p.crop.intersect(screen)||p.crop.width()<32||p.crop.height()<32)throw new IllegalArgumentException("截图裁剪区域无效或过小");
+        boolean overlap=false;for(Rect r:p.allowed)if(Rect.intersects(r,p.crop)){overlap=true;break;}
+        if(!overlap)throw new SecurityException("裁剪区域不属于目标 App");
+        return p;
+    }
+    Capture captureForVision(Rect region)throws Exception {
+        awaitUiStable();CapturePlan plan=onMain(()->capturePlan(region));
+        CompletableFuture<Bitmap> result=new CompletableFuture<>();
+        main.post(()->{
+            try{takeScreenshot(android.view.Display.DEFAULT_DISPLAY,captureExecutor,new TakeScreenshotCallback(){
+                @Override public void onSuccess(ScreenshotResult shot) {
+                    HardwareBuffer buffer=shot.getHardwareBuffer();Bitmap hardware=null,copy=null;
+                    try{hardware=Bitmap.wrapHardwareBuffer(buffer,shot.getColorSpace());if(hardware==null)throw new IllegalStateException("截图转换失败");copy=hardware.copy(Bitmap.Config.ARGB_8888,false);if(!result.complete(copy))copy.recycle();}
+                    catch(Exception e){if(copy!=null&&!copy.isRecycled())copy.recycle();result.completeExceptionally(e);}
+                    finally{if(hardware!=null)hardware.recycle();buffer.close();}
+                }
+                @Override public void onFailure(int code){result.completeExceptionally(new SecurityException("Android拒绝截图（"+code+"）；不会尝试绕过受保护窗口"));}
+            });}catch(Exception e){result.completeExceptionally(e);}
+        });
+        Bitmap raw=null,cropped=null,scaled=null;
+        try {
+            raw=result.get(6,TimeUnit.SECONDS);
+            if(raw==null||(long)raw.getWidth()*raw.getHeight()>12_000_000)throw new IllegalStateException("截图尺寸超出本地处理预算");
+            onMain(()->{CapturePlan now=capturePlan(plan.crop);if(!now.pkg.equals(plan.pkg)||now.serial!=plan.serial||!now.allowed.equals(plan.allowed)||!now.masked.equals(plan.masked))throw new IllegalStateException("截图期间窗口已变化，请重新观察");return true;});
+            if(!new Rect(0,0,raw.getWidth(),raw.getHeight()).contains(plan.crop))throw new IllegalStateException("屏幕方向或尺寸已改变，请重新观察");
+            cropped=Bitmap.createBitmap(plan.crop.width(),plan.crop.height(),Bitmap.Config.ARGB_8888);
+            Canvas canvas=new Canvas(cropped);canvas.drawColor(Color.BLACK);Paint paint=new Paint(Paint.FILTER_BITMAP_FLAG);
+            for(Rect allowed:plan.allowed){Rect r=new Rect(allowed);if(!r.intersect(plan.crop))continue;Rect dest=new Rect(r);dest.offset(-plan.crop.left,-plan.crop.top);canvas.drawBitmap(raw,r,dest,paint);}
+            paint.setColor(Color.BLACK);for(Rect mask:plan.masked){Rect r=new Rect(mask);if(r.intersect(plan.crop)){r.offset(-plan.crop.left,-plan.crop.top);canvas.drawRect(r,paint);}}
+            float factor=Math.min(1f,1024f/Math.max(cropped.getWidth(),cropped.getHeight()));
+            scaled=Bitmap.createScaledBitmap(cropped,Math.max(1,Math.round(cropped.getWidth()*factor)),Math.max(1,Math.round(cropped.getHeight()*factor)),true);
+            ByteArrayOutputStream bytes=new ByteArrayOutputStream();scaled.compress(Bitmap.CompressFormat.JPEG,65,bytes);
+            Capture out=new Capture();out.jpeg=bytes.toByteArray();out.hash=hash(out.jpeg);out.pkg=plan.pkg;out.crop=new Rect(plan.crop);
+            out.allowed=plan.allowed;out.masked=plan.masked;out.imageWidth=scaled.getWidth();out.imageHeight=scaled.getHeight();return out;
+        }finally{
+            result.cancel(false);if(scaled!=null&&scaled!=cropped)scaled.recycle();if(cropped!=null)cropped.recycle();if(raw!=null)raw.recycle();
         }
     }
 
@@ -443,6 +567,7 @@ public class BridgeService extends AccessibilityService {
                 AccessibilityNodeInfo root = getRootInActiveWindow();
                 if (root == null) { result.complete(error("No active window")); return; }
                 try {
+                    if(args.has("_vision_package")&&!args.getString("_vision_package").equals(string(root.getPackageName()))){result.complete(error("Visual target app changed"));return;}
                     if (getPackageName().equals(string(root.getPackageName()))) {
                         result.complete(error("Pairing app is protected")); return;
                     }

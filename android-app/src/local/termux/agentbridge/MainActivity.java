@@ -317,6 +317,22 @@ public final class MainActivity extends Activity implements AgentService.Listene
         body.addView(button("保存模型配置",true,v->{try{if(AgentService.isBusy())throw new IllegalStateException("请等待当前任务结束再修改配置。");AgentPolicy.endpoint(url.getText().toString().trim());String m=model.getText().toString().trim();if(m.isEmpty())throw new IllegalArgumentException("模型 ID 不能为空");if(!key.getText().toString().trim().isEmpty())store.saveKey(key.getText().toString().trim());store.prefs.edit().putString("base_url",url.getText().toString().trim()).putString("model",m).commit();key.setText("");toast("配置已保存");refresh();}catch(Exception e){error(e);}}));
         gap(body,8);Button test=button("测试模型连接",false,null);test.setOnClickListener(v->{if(!store.prefs.getBoolean("cloud_consent",false)){toast("请先允许下方的云端模型处理。");return;}test.setEnabled(false);test.setText("正在测试…");new Thread(()->{String result;try{JSONObject reply=new ModelClient().chat(store.config(),new JSONArray().put(new JSONObject().put("role","user").put("content","只回复：连接成功")),null,new ModelClient.Stream(){public void delta(String t){}public void usage(JSONObject u){}});result=reply.optString("content","").isEmpty()?"模型未返回正文":"模型连接成功";}catch(Exception e){result=String.valueOf(e.getMessage());}final String text=result;runOnUiThread(()->{if(isFinishing())return;test.setEnabled(true);test.setText("测试模型连接");toast(text);});},"model-connection-test").start();});body.addView(test);
         Switch consent=new Switch(this);consent.setText("允许云端模型处理任务与相关界面文字");consent.setTextColor(c.text);consent.setTextSize(14);consent.setMinHeight(dp(56));consent.setChecked(store.prefs.getBoolean("cloud_consent",false));consent.setOnCheckedChangeListener((b,on)->store.prefs.edit().putBoolean("cloud_consent",on).commit());body.addView(consent);
+        section(body,"视觉补盲 · 按需使用","默认只发送精简无障碍控件。目标缺失时才请求低细节截图，图片仅发送一轮，不写入聊天记录。视觉仍可能误读，不能代替操作结果验证。");
+        Switch visual=new Switch(this);visual.setText("允许必要的截图发送给已配置模型");visual.setTextSize(14);visual.setTextColor(c.text);visual.setMinHeight(dp(56));visual.setChecked(store.prefs.getBoolean("visual_consent",false));
+        visual.setOnCheckedChangeListener((b,on)->{
+            if(!on){store.prefs.edit().putBoolean("visual_consent",false).commit();return;}
+            if(!store.prefs.getBoolean("cloud_consent",false)){visual.setChecked(false);toast("请先允许云端模型处理。");return;}
+            AlertDialog warning=new AlertDialog.Builder(this).setTitle("允许按需上传界面截图？")
+                .setMessage("截图可能包含私人内容，将发送给你配置的模型服务商（需支持图片输入）。控件文字优先；默认每任务最多尝试 3 次截图，只发送一轮，App 不保存图片。会尝试遮蔽其他窗口，拒绝已识别的密码、支付/银行及系统授权页面；识别不能保证完整，请勿在隐私页面使用。视觉坐标点击仍逐次确认，锁屏与系统受保护窗口不会绕过。关闭后不再发送新图；已经发出的请求不能撤回。")
+                .setNegativeButton("保持关闭",(d,w)->visual.setChecked(false))
+                .setPositiveButton("了解并允许",(d,w)->store.prefs.edit().putBoolean("visual_consent",true).commit()).create();
+            warning.setOnDismissListener(d->{if(!store.prefs.getBoolean("visual_consent",false))visual.setChecked(false);});warning.show();
+        });body.addView(visual);
+        Button budget=button("每任务截图尝试上限："+store.visualBudget()+" 次",false,null);budget.setOnClickListener(v->{
+            String[] values={"1 次 · 最省","2 次","3 次 · 默认","4 次","5 次"};
+            new AlertDialog.Builder(this).setTitle("每任务视觉预算").setSingleChoiceItems(values,store.visualBudget()-1,(dialog,index)->{store.prefs.edit().putInt("visual_budget",index+1).commit();budget.setText("每任务截图尝试上限："+(index+1)+" 次");dialog.dismiss();}).setNegativeButton("返回",null).show();
+        });body.addView(budget);gap(body,8);
+        body.addView(text("官方 deepseek-flash 使用非思考模式，减少逐步执行的推理开销。截图采用 low 细节，小字可请求局部裁剪；低细节不等于零图片 token。更新后如系统未授予截图能力，需手动重新启用无障碍服务。",13,c.muted));
         section(body,"设备控制",BridgeService.current==null?"系统无障碍尚未连接。请手动启用服务。":"无障碍服务已连接；无需配对或打开 Termux。");
         body.addView(button("打开系统无障碍设置",false,v->startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))));
         Switch allowed=new Switch(this);allowed.setText("允许本机助手操作设备");allowed.setTextColor(c.text);allowed.setMinHeight(dp(56));allowed.setChecked(getSharedPreferences("bridge",MODE_PRIVATE).getBoolean("allowed",false));allowed.setOnCheckedChangeListener((b,on)->{getSharedPreferences("bridge",MODE_PRIVATE).edit().putBoolean("allowed",on).commit();refresh();});body.addView(allowed);
@@ -348,9 +364,10 @@ public final class MainActivity extends Activity implements AgentService.Listene
         body.addView(button("导出当前会话",false,v->{exportSession=store.selected();Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("text/markdown").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"agent-session-"+System.currentTimeMillis()+".md");startActivityForResult(intent,22);}));gap(body,8);
         body.addView(button("整理当前会话记忆",false,v->{if(AgentService.isBusy()){toast("请等待当前任务结束");return;}if(!store.prefs.getBoolean("cloud_consent",false)){toast("请先允许云端模型处理");return;}startForegroundService(new Intent(this,AgentService.class).setAction(AgentService.COMPACT).putExtra("session",store.selected()));navigate("chat");}));gap(body,12);
         String migrated=store.meta("migration_state","尚未导入旧数据");body.addView(text("迁移状态："+migrated+"\n旧版消息："+store.meta("migration_messages","0")+" 条\n原生累计用量：输入 "+store.meta("native:prompt_tokens","0")+" / 输出 "+store.meta("native:completion_tokens","0")+" token",13,c.muted));
+        try{JSONObject m=new JSONObject(store.meta("last_task_metrics","{}"));if(m.has("model_requests"))body.addView(text("最近任务："+m.optInt("model_requests")+" 次模型请求 · 输入 "+m.optLong("prompt_tokens")+" / 输出 "+m.optLong("completion_tokens")+" token\n控件传输 "+m.optLong("raw_ui_chars")+" → "+m.optLong("sent_ui_chars")+" 字符 · 截图尝试 "+m.optInt("visual_requests")+" 次\nToken 来自服务商 usage；未返回用量时无法统计，字符数不是 token 数。不含历史摘要请求。",13,c.muted));}catch(Exception ignored){}
         section(body,"运行边界","原生服务在本 App 内连接模型、管理记忆并执行工具，不需要 Termux 或电脑。后台任务有常驻通知；系统仍可能回收进程，重启后不会擅自续做操作。");
-        body.addView(text("文件和 Android Shell 使用本 App 的独立权限。旧工作文件已迁移，但 Python、pip、Termux 软件包不随之迁移；需要它们的脚本不能直接运行。此版本读取无障碍控件，不含截图识别或 OCR。\n\n聊天与工具记录保存在本机，可能含私人内容，导出时请谨慎。卸载 App 将删除本机数据。",14,c.muted));
-        gap(body,24);body.addView(text("Pocket Agent 1.1 · 原生 Android",12,c.accent));
+        body.addView(text("文件和 Android Shell 使用本 App 的独立权限。旧工作文件已迁移，但 Python、pip、Termux 软件包不随之迁移；需要它们的脚本不能直接运行。无障碍为主，独立授权的云端截图视觉补盲；不含本地 OCR。\n\n聊天与工具记录保存在本机，可能含私人内容，导出时请谨慎。截图不写入会话，但模型给出的文字描述可能保留。卸载 App 将删除本机数据。",14,c.muted));
+        gap(body,24);body.addView(text("Pocket Agent 1.2 · 原生 Android",12,c.accent));
     }
     void emergency(){new AlertDialog.Builder(this).setTitle("停止所有当前任务？").setMessage("取消模型请求、停止本 App 的 Shell 子进程，并暂停设备控制。已发生的外部操作不会回滚。")
         .setNegativeButton("返回",null).setPositiveButton("紧急停止",(d,w)->{startForegroundService(new Intent(this,AgentService.class).setAction(AgentService.EMERGENCY));getSharedPreferences("bridge",MODE_PRIVATE).edit().putBoolean("allowed",false).commit();toast("已请求紧急停止");navigate("chat");}).show();}

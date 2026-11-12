@@ -11,7 +11,8 @@
 - 更新记录：[`android-app/CHANGELOG.md`](android-app/CHANGELOG.md)
 
 当前 App 使用轻量 Java agent、外部模型 API 与 Android 原生执行工具，不依赖 Termux 服务。
-尚未接入 Pi/DSH、内嵌 Linux/Node、截图 OCR 或全部系统数据接口；不能宣称可以操作手机所有内容。
+尚未接入 Pi/DSH、内嵌 Linux/Node、本地 OCR 或全部系统数据接口；不能宣称可以操作手机所有内容。
+1.2 新增精简无障碍与独立授权的云端视觉补盲，流程与隐私边界见 [`android-app/ACCESSIBILITY_VISION.md`](android-app/ACCESSIBILITY_VISION.md)。
 后续建议复用成熟引擎，把重点放在 Android 能力、明确授权和个人工作流上。
 
 ## 旧 Termux 项目

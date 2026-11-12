@@ -16,12 +16,19 @@ final class ModelClient {
     volatile HttpURLConnection connection;
     volatile boolean cancelled;
     void cancel() {cancelled=true;HttpURLConnection c=connection;if(c!=null)c.disconnect();}
+    static boolean efficientFlash(JSONObject config)throws Exception {
+        return "api.deepseek.com".equalsIgnoreCase(new URL(AgentPolicy.endpoint(config.getString("base_url"))).getHost())&&
+            config.optString("model").equals("deepseek-flash");
+    }
     JSONObject chat(JSONObject config,JSONArray messages,JSONArray tools,Stream sink) throws Exception {
         if(cancelled||Thread.currentThread().isInterrupted())throw new InterruptedException();
         JSONObject body=new JSONObject().put("model",config.getString("model")).put("messages",messages)
             .put("stream",true).put("temperature",0.4).put("stream_options",new JSONObject().put("include_usage",true));
+        // Official Flash defaults to thinking. UI execution uses non-thinking mode
+        // to avoid repeated reasoning tokens; do not send vendor fields to proxies.
+        if(efficientFlash(config))body.put("thinking",new JSONObject().put("type","disabled"));
         if(tools!=null&&tools.length()>0)body.put("tools",tools).put("tool_choice","auto");
-        StringBuilder content=new StringBuilder();TreeMap<Integer,JSONObject> slots=new TreeMap<>();
+        StringBuilder content=new StringBuilder();TreeMap<Integer,JSONObject> slots=new TreeMap<>();JSONObject usage=null;
         String endpoint=AgentPolicy.endpoint(config.getString("base_url"))+"/chat/completions";
         HttpURLConnection c=(HttpURLConnection)new URL(endpoint).openConnection();connection=c;
         c.setInstanceFollowRedirects(false);c.setConnectTimeout(15000);c.setReadTimeout(90000);
@@ -39,7 +46,7 @@ final class ModelClient {
                     String data=line.substring(5).trim();if(data.equals("[DONE]"))break;
                     JSONObject chunk;try{chunk=new JSONObject(data);}catch(Exception bad){continue;}
                     if(chunk.has("error"))throw new IllegalStateException("模型返回流式错误；请稍后重试。");
-                    if(chunk.optJSONObject("usage")!=null)sink.usage(chunk.getJSONObject("usage"));
+                    if(chunk.optJSONObject("usage")!=null)usage=chunk.getJSONObject("usage");
                     JSONArray choices=chunk.optJSONArray("choices");if(choices==null||choices.length()==0)continue;
                     JSONObject delta=choices.getJSONObject(0).optJSONObject("delta");if(delta==null)continue;
                     String text=delta.optString("content","");
@@ -71,6 +78,6 @@ final class ModelClient {
             if(content.length()>0&&!cancelled&&slots.isEmpty())return new JSONObject().put("role","assistant")
                 .put("content",content+"\n\n[连接中断，以上为部分回答；未自动重试。]");
             throw e;
-        } finally {c.disconnect();connection=null;}
+        } finally {c.disconnect();connection=null;if(usage!=null)sink.usage(usage);}
     }
 }
